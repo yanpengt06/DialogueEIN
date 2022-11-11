@@ -8,7 +8,7 @@ Project structure refers to @shenwzh3/DAG-ERC. Features and Dataset can be found
 
 ## Model
 
-![image-20221111190813432](.\README.assets\image-20221111190813432.png)
+![image-20221111190813432](./README.assets/image-20221111190813432.png)
 
 ## Experiment Result
 
