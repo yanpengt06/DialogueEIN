@@ -1,0 +1,6 @@
+[2022-11-11 15:26:58,321][run.py][line:98][INFO] start training on GPU 0!
+[2022-11-11 15:26:58,322][run.py][line:99][INFO] Namespace(no_cuda=False, dataset_name='MELD', max_grad_norm=5.0, lr=5e-05, dropout=0.1, batch_size=8, epochs=40, window_size=5, tensorboard=False, cuda=False)
+[2022-11-11 15:27:55,902][run.py][line:166][INFO] Epoch: 1, train_loss: 4.2645, train_acc: 87.96, train_fscore: 88.05, valid_loss: 8.6022, valid_acc: 59.42, valid_fscore: 59.72, test_loss: 8.9178, test_acc: 58.97, test_fscore: 59.44, time: 47.1 sec
+[2022-11-11 15:28:35,134][run.py][line:166][INFO] Epoch: 2, train_loss: 1.6737, train_acc: 88.43, train_fscore: 88.63, valid_loss: 12.8332, valid_acc: 55.91, valid_fscore: 56.62, test_loss: 13.2563, test_acc: 55.94, test_fscore: 56.86, time: 39.23 sec
+[2022-11-11 15:29:17,261][run.py][line:166][INFO] Epoch: 3, train_loss: 0.9925, train_acc: 91.58, train_fscore: 91.63, valid_loss: 6.9019, valid_acc: 62.13, valid_fscore: 61.07, test_loss: 7.077, test_acc: 64.18, test_fscore: 63.33, time: 42.13 sec
+[2022-11-11 15:29:59,484][run.py][line:166][INFO] Epoch: 4, train_loss: 0.9335, train_acc: 90.95, train_fscore: 91.18, valid_loss: 9.7299, valid_acc: 49.05, valid_fscore: 49.91, test_loss: 10.0862, test_acc: 51.72, test_fscore: 53.66, time: 42.22 sec

@@ -1,0 +1,3 @@
+[2022-11-11 10:56:02,177][run.py][line:94][INFO] start training on GPU 0!
+[2022-11-11 10:56:02,177][run.py][line:95][INFO] Namespace(no_cuda=False, dataset_name='DailyDialog', max_grad_norm=5.0, lr=0.0001, dropout=0.1, batch_size=8, epochs=20, window_size=5, tensorboard=False, cuda=True)
+[2022-11-11 10:58:06,241][run.py][line:138][INFO] Epoch: 1, train_loss: 1.2361, train_acc: 89.73, train_micro_fscore: 69.45, train_macro_fscore: 56.83, valid_loss: 0.5816, valid_acc: 91.2, valid_micro_fscore: 52.89, valid_macro_fscore: 41.89, test_loss: 1.0838, test_acc: 85.37, test_micro_fscore: 48.43, test_macro_fscore: 46.72, time: 97.48 sec
