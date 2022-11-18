@@ -14,8 +14,8 @@ def get_train_valid_sampler(trainset):
 
 
 def load_vocab(dataset_name):
-    speaker_vocab = pickle.load(open('./data/%s/speaker_vocab.pkl' % (dataset_name), 'rb'))
-    label_vocab = pickle.load(open('./data/%s/label_vocab.pkl' % (dataset_name), 'rb'))
+    speaker_vocab = pickle.load(open('./code/DialogueEIN/data/%s/speaker_vocab.pkl' % (dataset_name), 'rb'))
+    label_vocab = pickle.load(open('./code/DialogueEIN/data/%s/label_vocab.pkl' % (dataset_name), 'rb'))
     person_vec_dir = './data/%s/person_vect.pkl' % (dataset_name)
     # if os.path.exists(person_vec_dir):
     #     print('Load person vec from ' + person_vec_dir)
@@ -35,8 +35,8 @@ def get_IEMOCAP_loaders(dataset_name = 'IEMOCAP', batch_size=32, num_workers=0, 
     print('building vocab.. ')
     speaker_vocab, label_vocab, person_vec = load_vocab(dataset_name)
     print('building datasets..')
-    trainset = IEMOCAPDataset(dataset_name, 'train',  speaker_vocab, label_vocab, args)
-    devset = IEMOCAPDataset(dataset_name, 'dev', speaker_vocab, label_vocab, args)
+    trainset = IEMOCAPDataset2(dataset_name, 'train',  speaker_vocab, label_vocab, args)
+    devset = IEMOCAPDataset2(dataset_name, 'dev', speaker_vocab, label_vocab, args)
     train_sampler = get_train_valid_sampler(trainset)
     valid_sampler = get_train_valid_sampler(devset)
 
@@ -54,7 +54,7 @@ def get_IEMOCAP_loaders(dataset_name = 'IEMOCAP', batch_size=32, num_workers=0, 
                               num_workers=num_workers,
                               pin_memory=pin_memory)
 
-    testset = IEMOCAPDataset(dataset_name, 'test',  speaker_vocab, label_vocab, args)
+    testset = IEMOCAPDataset2(dataset_name, 'test',  speaker_vocab, label_vocab, args)
     test_loader = DataLoader(testset,
                              batch_size=batch_size,
                              collate_fn=testset.collate_fn,

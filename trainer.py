@@ -28,23 +28,30 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
         if train:
             optimizer.zero_grad()
         # text_ids, text_feature, speaker_ids, labels, umask = [d.cuda() for d in data] if cuda else data
-        features, label, speakers, lengths, utterances = data
+        label, speakers, lengths, utterances, utts, att_mask = data
         # speaker_vec = person_embed(speaker_ids, person_vec)
         if cuda:
-            features = features.cuda()  # B x T x H
+            # features = features.cuda()  # B x T x H
+            # features = features.view(-1, features.shape[-1]) # (B x T, H)
             label = label.cuda()    # B x T
+            # label = label.view(-1) # (B x T, )
             lengths = lengths.cuda()    # B
             speakers = speakers.cuda()  # B x T
+            utts = utts.cuda()
+            att_mask = att_mask.cuda()
 
 
         # print(speakers)
-        log_prob = model(features, lengths, speakers) # (B, T, C)
+        # log_prob = model(features, lengths, speakers) # (B, T, C)
+        log_prob = model(utts, att_mask, lengths, speakers) # (B, T, C)
         # print(label)
-        loss = loss_function(log_prob.permute(0,2,1), label)
+        loss = loss_function(log_prob.permute(0,2,1), label) # B x C x T --- B x T
+        # loss = loss_function(log_prob, label)
 
 
         label = label.cpu().numpy().tolist()
         pred = torch.argmax(log_prob, dim = 2).cpu().numpy().tolist()
+        # pred = torch.argmax(log_prob, dim = 1).cpu().numpy().tolist() # (B x T, C)
         preds += pred
         labels += label
         losses.append(loss.item())
@@ -67,6 +74,10 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
                 if l != -1:
                     new_labels.append(l)
                     new_preds.append(preds[i][j])
+        # for i, label in enumerate(labels):
+        #     if label != -1:
+        #         new_labels.append(label)
+        #         new_preds.append(preds[i])
     else:
         return float('nan'), float('nan'), [], [], float('nan'), [], [], [], [], []
 

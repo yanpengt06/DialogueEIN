@@ -52,26 +52,26 @@ def seed_everything(seed=seed):
 
 if __name__ == '__main__':
 
-    path = './saved_models/'
+    path = './code/DialogueEIN/saved_models/'
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--no_cuda', action='store_true', default=False, help='does not use GPU')
 
-    parser.add_argument('--dataset_name', default='IEMOCAP', type=str,
+    parser.add_argument('--dataset_name', default='MELD', type=str,
                         help='dataset name, IEMOCAP or MELD or DailyDialog'
                              'or jddc')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
 
-    parser.add_argument('--lr', type=float, default=1e-4, metavar='LR', help='learning rate')
+    parser.add_argument('--lr', type=float, default=5e-6, metavar='LR', help='learning rate')
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
     parser.add_argument('--batch_size', type=int, default=8, metavar='BS', help='batch size')
 
-    parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=30, metavar='E', help='number of epochs')
 
-    parser.add_argument('--window_size', type=int, default=15, metavar='WS', help='window_size of local attention')
+    parser.add_argument('--window_size', type=int, default=5, metavar='WS', help='window_size of local attention')
 
     parser.add_argument('--tensorboard', action='store_true', default=False, help='Enables tensorboard log')
 
@@ -103,7 +103,7 @@ if __name__ == '__main__':
     n_epochs = args.epochs
     batch_size = args.batch_size
     train_loader, valid_loader, test_loader, speaker_vocab, label_vocab, person_vec = get_IEMOCAP_loaders(
-        dataset_name=args.dataset_name, batch_size=batch_size, num_workers=0, args=args)
+        dataset_name=args.dataset_name, batch_size=batch_size, num_workers=4, args=args)
     # for data in train_loader:         # load data successfully
     #     data
     n_classes = len(label_vocab['itos'])

@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np, itertools, random, copy, math
-from transformers import BertModel, BertConfig
+from transformers import BertModel, BertConfig, AutoModelForMaskedLM
 from transformers import AutoTokenizer, AutoModelWithLMHead
 from model_utils import *
 from utils import sequence_mask
@@ -609,12 +609,24 @@ class DialogueEIN(nn.Module):
         self.transform1 = nn.Linear(4 * config.hidden_size, config.hidden_size)  # Emotion interaction layer
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.transform2 = nn.Linear(config.hidden_size, config.hidden_size)  # classify layer
+        self.mlp = MLP(3, config.hidden_size, config.hidden_size, emotion_num)
+        self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
 
-    def forward(self, features, lengths, speakers):
+    def forward(self, utts, att_mask, lengths, speakers):
         """
         @params:
+        utts: B x S x W, S is the max dialogue length, W is the max sentence length, which is 512, as roberta-base limits
         speakers: B x T  speaker encoding
+        lengths: B dialogue length
+        att_mask: B x S x W, transformers attention_mask tensor
         """
+        B = utts.shape[0]
+        S = utts.shape[1]
+        utts = utts.view(-1, utts.shape[-1]) # (B x S, W)
+        att_mask = att_mask.view(-1, att_mask.shape[-1]) # (B x S, W)
+        output = self.roberta(input_ids=utts, attention_mask=att_mask, output_hidden_states=True) # output object
+        features = output["hidden_states"][12][:,0] # (B x S, H) get the cls feature
+        features = features.view(B,S,features.shape[-1])
         h_s = self.semantic_encoder(features, lengths)  # B x T x H
         att_mask = torch.ones(1, self.emo_num)  # 1 x emo_num (broadcast to B x 1 x 1 x emo_num )
         extended_att_mask = att_mask.unsqueeze(1).unsqueeze(2).to(self.device)  # B x 1 x 1 x T
@@ -623,7 +635,8 @@ class DialogueEIN(nn.Module):
         h_e = self.tendency_mha(h_s, self.emotion_ebd.weight.unsqueeze(0), self.emotion_ebd.weight.unsqueeze(0),
                                 extended_att_mask)
         h_a_global = self.global_mha(h_e, h_e, h_e, get_ext_att_mask(lengths, device=self.device))  # B x T x H
-        h_a_local = self.local_mha(h_e, h_e, h_e, get_ext_att_mask(lengths, window_size=self.window_size, type="local", device=self.device))
+        h_a_local = self.local_mha(h_e, h_e, h_e, get_ext_att_mask(lengths, window_size=self.window_size, type="local",
+                                                                   device=self.device))
         h_a_inter = self.inter_mha(h_e, h_e, h_e,
                                    get_ext_att_mask(lengths, type="inter", speakers=speakers, device=self.device))
         h_a_intra = self.intra_mha(h_e, h_e, h_e,
@@ -634,6 +647,8 @@ class DialogueEIN(nn.Module):
         h_a = self.transform2(h_a)  # B x T x H
         logits = torch.matmul(h_a, self.emotion_ebd.weight.transpose(0, 1).unsqueeze(0))  # B x T x C
         return logits
+        # features = features.view(-1, features.shape[-1]) # (B x T, H)
+        # return self.mlp(features) # (B x T, C)
 
 
 def get_ext_att_mask(lengths, window_size=5, type: str = "global", speakers=None, device="cpu"):
@@ -698,6 +713,7 @@ class SemanticEncoder(nn.Module):
     """
     default: nhead=8, dim_ffn = 2048, dropout = 0.1
     """
+
     def __init__(self, utt_dim):
         super(SemanticEncoder, self).__init__()
         self.utt_dim = utt_dim
@@ -735,6 +751,29 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         x = x + self.pe[:, : x.size(1)]  # 输入的词嵌入与位置编码相加
         return x
+
+
+class MLP(nn.Module):
+
+    def __init__(self, layer_num, input_dim, hidden_dim, class_num):
+        super(MLP, self).__init__()
+        self.hidden_layer = nn.Linear(hidden_dim, hidden_dim)
+        self.input_layer = nn.Linear(input_dim, hidden_dim)
+        self.output_layer = nn.Linear(hidden_dim, class_num)
+        self.hidden_layers = nn.ModuleList([copy.deepcopy(self.hidden_layer) for _ in range(layer_num - 1)])
+
+    def forward(self, inputs):
+        """
+        @params:
+        inputs B x input_dim
+        @returns:
+        logits B x C
+        """
+        inputs = self.input_layer(inputs) # B x H
+        for hidden_layer in self.hidden_layers:
+            inputs = hidden_layer(inputs) # B x H
+        outputs = self.output_layer(inputs) # B x C, logits
+        return outputs
 
 
 if __name__ == '__main__':
