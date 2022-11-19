@@ -67,9 +67,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
-    parser.add_argument('--batch_size', type=int, default=8, metavar='BS', help='batch size')
+    parser.add_argument('--batch_size', type=int, default=16, metavar='BS', help='batch size')
 
-    parser.add_argument('--epochs', type=int, default=30, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=40, metavar='E', help='number of epochs')
 
     parser.add_argument('--window_size', type=int, default=5, metavar='WS', help='window_size of local attention')
 
@@ -81,6 +81,8 @@ if __name__ == '__main__':
     seed_everything()
 
     args.cuda = torch.cuda.is_available() and not args.no_cuda
+
+    args.roberta_dim = 1024 if args.dataset_name == 'MELD' else 768
 
     config = BertConfig(1)
 
@@ -110,7 +112,7 @@ if __name__ == '__main__':
     print(f"This dataset contains {n_classes} classes.")
     print('building model..')
 
-    model = DialogueEIN(config, n_classes, window_size=args.window_size, device=device)
+    model = DialogueEIN(config, n_classes, window_size=args.window_size, device=device, roberta_dim=args.roberta_dim)
 
     if torch.cuda.device_count() > 1:
         print('Multi-GPU...........')

@@ -344,7 +344,7 @@ class BertConfig(object):
 
     def __init__(self,
                  vocab_size_or_config_json_file,
-                 hidden_size=1024,
+                 hidden_size=512,
                  num_hidden_layers=12,
                  num_attention_heads=8,
                  intermediate_size=1024,
@@ -594,7 +594,7 @@ class EmotionAttention(nn.Module):
 class DialogueEIN(nn.Module):
     """reproduction of DialogueEIN"""
 
-    def __init__(self, config, emotion_num, window_size, device):
+    def __init__(self, config, emotion_num, window_size, roberta_dim, device):
         super(DialogueEIN, self).__init__()
         self.device = device
         self.semantic_encoder = SemanticEncoder(config.hidden_size)
@@ -611,12 +611,13 @@ class DialogueEIN(nn.Module):
         self.transform2 = nn.Linear(config.hidden_size, config.hidden_size)  # classify layer
         self.mlp = MLP(3, config.hidden_size, config.hidden_size, emotion_num)
         self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
+        self.linear_trans = nn.Linear(roberta_dim, config.hidden_size)
 
     def forward(self, utts, att_mask, lengths, speakers):
         """
         @params:
         utts: B x S x W, S is the max dialogue length, W is the max sentence length, which is 512, as roberta-base limits
-        speakers: B x T  speaker encoding
+        speakers: B x T  speaker encoding, T has the same meaning as S
         lengths: B dialogue length
         att_mask: B x S x W, transformers attention_mask tensor
         """
@@ -626,14 +627,15 @@ class DialogueEIN(nn.Module):
         att_mask = att_mask.view(-1, att_mask.shape[-1]) # (B x S, W)
         output = self.roberta(input_ids=utts, attention_mask=att_mask, output_hidden_states=True) # output object
         features = output["hidden_states"][12][:,0] # (B x S, H) get the cls feature
-        features = features.view(B,S,features.shape[-1])
-        h_s = self.semantic_encoder(features, lengths)  # B x T x H
+        features = features.view(B,S,features.shape[-1]) # B x T x H
+        features = self.linear_trans(features) # B x T x U, U is feature size of an utterance
+        h_s = self.semantic_encoder(features, lengths)  # B x T x U
         att_mask = torch.ones(1, self.emo_num)  # 1 x emo_num (broadcast to B x 1 x 1 x emo_num )
         extended_att_mask = att_mask.unsqueeze(1).unsqueeze(2).to(self.device)  # B x 1 x 1 x T
         # .to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
         extended_att_mask = (1.0 - extended_att_mask) * -10000.0
         h_e = self.tendency_mha(h_s, self.emotion_ebd.weight.unsqueeze(0), self.emotion_ebd.weight.unsqueeze(0),
-                                extended_att_mask)
+                                extended_att_mask)  # B x T x U
         h_a_global = self.global_mha(h_e, h_e, h_e, get_ext_att_mask(lengths, device=self.device))  # B x T x H
         h_a_local = self.local_mha(h_e, h_e, h_e, get_ext_att_mask(lengths, window_size=self.window_size, type="local",
                                                                    device=self.device))
@@ -641,10 +643,10 @@ class DialogueEIN(nn.Module):
                                    get_ext_att_mask(lengths, type="inter", speakers=speakers, device=self.device))
         h_a_intra = self.intra_mha(h_e, h_e, h_e,
                                    get_ext_att_mask(lengths, type="intra", speakers=speakers, device=self.device))
-        h_a = torch.cat([h_a_global, h_a_local, h_a_inter, h_a_intra], dim=-1)  # B x T x 4H
-        h_a = self.transform1(h_a)  # B x T x H
-        h_a = self.LayerNorm(h_a + h_s)  # B x T x H
-        h_a = self.transform2(h_a)  # B x T x H
+        h_a = torch.cat([h_a_global, h_a_local, h_a_inter, h_a_intra], dim=-1)  # B x T x 4U
+        h_a = self.transform1(h_a)  # B x T x U
+        h_a = self.LayerNorm(h_a + h_s)  # B x T x U
+        h_a = self.transform2(h_a)  # B x T x U
         logits = torch.matmul(h_a, self.emotion_ebd.weight.transpose(0, 1).unsqueeze(0))  # B x T x C
         return logits
         # features = features.view(-1, features.shape[-1]) # (B x T, H)
