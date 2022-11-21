@@ -14,6 +14,7 @@ from dataset import IEMOCAPDataset
 from dataloader import get_IEMOCAP_loaders
 from transformers import AdamW
 import copy
+from utils import remove_layer_idx, get_param_group
 
 # We use seed = 100 for reproduction of the results reported in the paper.
 seed = 100
@@ -52,28 +53,29 @@ def seed_everything(seed=seed):
 
 if __name__ == '__main__':
 
-    path = './code/DialogueEIN/saved_models/'
+    path = './saved_models/'
 
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--no_cuda', action='store_true', default=False, help='does not use GPU')
 
-    parser.add_argument('--dataset_name', default='MELD', type=str,
+    parser.add_argument('--dataset_name', default='IEMOCAP', type=str,
                         help='dataset name, IEMOCAP or MELD or DailyDialog'
                              'or jddc')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
 
-    parser.add_argument('--lr', type=float, default=5e-6, metavar='LR', help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-5, metavar='LR', help='learning rate')
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
-    parser.add_argument('--batch_size', type=int, default=16, metavar='BS', help='batch size')
+    parser.add_argument('--batch_size', type=int, default=8, metavar='BS', help='batch size')
 
     parser.add_argument('--epochs', type=int, default=40, metavar='E', help='number of epochs')
 
-    parser.add_argument('--window_size', type=int, default=5, metavar='WS', help='window_size of local attention')
+    parser.add_argument('--window_size', type=int, default=15, metavar='WS', help='window_size of local attention')
 
     parser.add_argument('--tensorboard', action='store_true', default=False, help='Enables tensorboard log')
+
 
     args = parser.parse_args()
     print(args)
@@ -81,8 +83,6 @@ if __name__ == '__main__':
     seed_everything()
 
     args.cuda = torch.cuda.is_available() and not args.no_cuda
-
-    args.roberta_dim = 1024 if args.dataset_name == 'MELD' else 768
 
     config = BertConfig(1)
 
@@ -112,7 +112,24 @@ if __name__ == '__main__':
     print(f"This dataset contains {n_classes} classes.")
     print('building model..')
 
-    model = DialogueEIN(config, n_classes, window_size=args.window_size, device=device, roberta_dim=args.roberta_dim)
+    config.hidden_size = 384 if args.dataset_name == 'IEMOCAP' else 512
+    model = DialogueEIN(config, n_classes, window_size=args.window_size, device=device)
+
+    # for n, p in model.named_parameters():
+    #     print(n)
+
+    param_group = get_param_group(model)
+
+    # # verify group correctly
+    # small = ['roberta']
+    # params = list(model.named_parameters())
+    # roberta = [n for n,p in params if any(s in n for s in small)]
+    # no_roberta = [n for n,p in params if not any(s in n for s in small)]
+    # all_params = [n for n,p in params]
+    # print(roberta)
+    # print(no_roberta)
+    # print(all_params)
+    # print(set(roberta + no_roberta) == set(all_params))
 
     if torch.cuda.device_count() > 1:
         print('Multi-GPU...........')
@@ -120,8 +137,10 @@ if __name__ == '__main__':
     if cuda:
         model.cuda()
 
+
     loss_function = nn.CrossEntropyLoss(ignore_index=-1)
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+    optimizer = AdamW(param_group, lr=args.lr)
+    # scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=1e-2, total_iters=n_epochs)
 
     best_fscore, best_acc, best_loss, best_label, best_pred, best_mask = None, None, None, None, None, None
     all_fscore, all_acc, all_loss = [], [], []
@@ -138,7 +157,7 @@ if __name__ == '__main__':
                                                                                                       train_loader, e,
                                                                                                       cuda,
                                                                                                       args, optimizer,
-                                                                                                      True)
+                                                                                                      True, scheduler)
             valid_loss, valid_acc, _, _, valid_micro_fscore, valid_macro_fscore = train_or_eval_model(model,
                                                                                                       loss_function,
                                                                                                       valid_loader, e,

@@ -344,7 +344,7 @@ class BertConfig(object):
 
     def __init__(self,
                  vocab_size_or_config_json_file,
-                 hidden_size=512,
+                 hidden_size=384,
                  num_hidden_layers=12,
                  num_attention_heads=8,
                  intermediate_size=1024,
@@ -594,7 +594,7 @@ class EmotionAttention(nn.Module):
 class DialogueEIN(nn.Module):
     """reproduction of DialogueEIN"""
 
-    def __init__(self, config, emotion_num, window_size, roberta_dim, device):
+    def __init__(self, config, emotion_num, window_size, device):
         super(DialogueEIN, self).__init__()
         self.device = device
         self.semantic_encoder = SemanticEncoder(config.hidden_size)
@@ -610,8 +610,13 @@ class DialogueEIN(nn.Module):
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.transform2 = nn.Linear(config.hidden_size, config.hidden_size)  # classify layer
         self.mlp = MLP(3, config.hidden_size, config.hidden_size, emotion_num)
-        self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
-        self.linear_trans = nn.Linear(roberta_dim, config.hidden_size)
+        self.roberta_dim = 768
+        if config.hidden_size == 384:
+            self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-base")
+        else:
+            self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
+            self.roberta_dim = 1024           
+        self.linear_trans = nn.Linear(self.roberta_dim, config.hidden_size)
 
     def forward(self, utts, att_mask, lengths, speakers):
         """

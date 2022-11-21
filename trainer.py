@@ -12,14 +12,23 @@ from tqdm import tqdm
 import json
 
 
-def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, optimizer=None, train=False):
+# 学习率衰减器，默认拐点为EPOCH ，即没有拐点
+def LR_tracker(iter:int, lr_start, lr_end, total):
+    return lr_start + (lr_end - lr_start)*iter/total
+
+
+def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, optimizer=None, train=False, scheduler=None):
     losses, preds, labels = [], [], []
     scores, vids = [], []
+
 
     assert not train or optimizer != None
     if train:
         model.train()
         # dataloader = tqdm(dataloader)
+        # optimizer.lr = LR_tracker(epoch, args.lr_start, args.lr_end, args.epochs)	# 执行学习率衰减，加拐点
+        # print(f"current roberta learning rate is :{optimizer.param_groups[0]['lr']}")        
+        # print(f"current other learning rate is :{optimizer.param_groups[1]['lr']}")                
     else:
         model.eval()
 
@@ -65,6 +74,10 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
                 for param in model.named_parameters():
                     writer.add_histogram(param[0], param[1].grad, epoch)
             optimizer.step()
+
+    # if train:
+    #     scheduler.step()
+    #     print(f"current learning rate is :{optimizer.param_groups[0]['lr']}")        
 
     if preds != []:
         new_preds = []

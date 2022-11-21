@@ -19,6 +19,7 @@ Project structure refers to @shenwzh3/DAG-ERC. Features and Dataset can be found
 | result-SSC                   | 65.67   | 63.59 |
 | result-v2                    | 62.83   | 63.3  |
 | result-v3                    | 63.38   | 63.03 |
+| result-v4                    | 63.84   | 63.1  |
 
 ## explanation
 

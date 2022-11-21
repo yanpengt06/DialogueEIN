@@ -181,7 +181,7 @@ class IEMOCAPDataset2(Dataset):
         else:
             version = 2
 
-        with open(f'./code/DialogueEIN/data/%s/%s_data_roberta_v{version}.json.feature'%(dataset_name, split), encoding='utf-8') as f:
+        with open(f'./data/%s/%s_data_roberta_v{version}.json.feature'%(dataset_name, split), encoding='utf-8') as f:
             raw_data = json.load(f)
 
         # process dialogue
