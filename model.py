@@ -10,331 +10,6 @@ from transformers import AutoTokenizer, AutoModelWithLMHead
 from model_utils import *
 from utils import sequence_mask
 
-
-class BertERC(nn.Module):
-
-    def __init__(self, args, num_class):
-        super().__init__()
-        self.args = args
-        # gcn layer
-
-        self.dropout = nn.Dropout(args.dropout)
-        # bert_encoder
-        self.bert_config = BertConfig.from_json_file(args.bert_model_dir + 'config.json')
-
-        self.bert = BertModel.from_pretrained(args.home_dir + args.bert_model_dir, config=self.bert_config)
-        in_dim = args.bert_dim
-
-        # output mlp layers
-        layers = [nn.Linear(in_dim, args.hidden_dim), nn.ReLU()]
-        for _ in range(args.mlp_layers - 1):
-            layers += [nn.Linear(args.hidden_dim, args.hidden_dim), nn.ReLU()]
-        layers += [nn.Linear(args.hidden_dim, num_class)]
-
-        self.out_mlp = nn.Sequential(*layers)
-
-    def forward(self, content_ids, token_types, utterance_len, seq_len):
-        # the embeddings for bert
-        # if len(content_ids)>512:
-        #     print('ll')
-
-        #
-        ## w token_type_ids
-        # lastHidden = self.bert(content_ids, token_type_ids = token_types)[1] #(N , D)
-        ## w/t token_type_ids
-        lastHidden = self.bert(content_ids)[1]  # (N , D)
-
-        final_feature = self.dropout(lastHidden)
-
-        # pooling
-
-        outputs = self.out_mlp(final_feature)  # (N, D)
-
-        return outputs
-
-
-class DAGERC(nn.Module):
-
-    def __init__(self, args, num_class):
-        super().__init__()
-        self.args = args
-        # gcn layer
-
-        self.dropout = nn.Dropout(args.dropout)
-
-        self.gnn_layers = args.gnn_layers
-
-        if not args.no_rel_attn:
-            self.rel_emb = nn.Embedding(2, args.hidden_dim)
-            self.rel_attn = True
-        else:
-            self.rel_attn = False
-
-        if self.args.attn_type == 'linear':
-            gats = []
-            for _ in range(args.gnn_layers):
-                gats += [GatLinear(args.hidden_dim) if args.no_rel_attn else GatLinear_rel(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-        else:
-            gats = []
-            for _ in range(args.gnn_layers):
-                gats += [Gatdot(args.hidden_dim) if args.no_rel_attn else Gatdot_rel(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-
-        grus = []
-        for _ in range(args.gnn_layers):
-            grus += [nn.GRUCell(args.hidden_dim, args.hidden_dim)]
-        self.grus = nn.ModuleList(grus)
-
-        self.fc1 = nn.Linear(args.emb_dim, args.hidden_dim)
-
-        in_dim = args.hidden_dim * (args.gnn_layers + 1) + args.emb_dim
-        # output mlp layers
-        layers = [nn.Linear(in_dim, args.hidden_dim), nn.ReLU()]
-        for _ in range(args.mlp_layers - 1):
-            layers += [nn.Linear(args.hidden_dim, args.hidden_dim), nn.ReLU()]
-        layers += [nn.Linear(args.hidden_dim, num_class)]
-
-        self.out_mlp = nn.Sequential(*layers)
-
-    def forward(self, features, adj, s_mask):
-        '''
-        :param features: (B, N, D)
-        :param adj: (B, N, N)
-        :param s_mask: (B, N, N)
-        :return:
-        '''
-        num_utter = features.size()[1]
-        if self.rel_attn:
-            rel_ft = self.rel_emb(s_mask)  # (B, N, N, D)
-
-        H0 = F.relu(self.fc1(features))  # (B, N, D)
-        H = [H0]
-        for l in range(self.args.gnn_layers):
-            H1 = self.grus[l](H[l][:, 0, :]).unsqueeze(1)  # (B, 1, D)
-            for i in range(1, num_utter):
-                if not self.rel_attn:
-                    _, M = self.gather[l](H[l][:, i, :], H1, H1, adj[:, i, :i])
-                else:
-                    _, M = self.gather[l](H[l][:, i, :], H1, H1, adj[:, i, :i], rel_ft[:, i, :i, :])
-                H1 = torch.cat((H1, self.grus[l](H[l][:, i, :], M).unsqueeze(1)), dim=1)
-                # print('H1', H1.size())
-                # print('----------------------------------------------------')
-            H.append(H1)
-            H0 = H1
-        H.append(features)
-        H = torch.cat(H, dim=2)  # (B, N, l*D)
-        logits = self.out_mlp(H)
-        return logits
-
-
-class DAGERC_fushion(nn.Module):
-
-    def __init__(self, args, num_class):
-        super().__init__()
-        self.args = args
-        # gcn layer
-
-        self.dropout = nn.Dropout(args.dropout)
-
-        self.gnn_layers = args.gnn_layers
-
-        if not args.no_rel_attn:
-            self.rel_attn = True
-        else:
-            self.rel_attn = False
-
-        if self.args.attn_type == 'linear':
-            gats = []
-            for _ in range(args.gnn_layers):
-                gats += [GatLinear(args.hidden_dim) if args.no_rel_attn else GatLinear_rel(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-        elif self.args.attn_type == 'dotprod':
-            gats = []
-            for _ in range(args.gnn_layers):
-                gats += [GatDot(args.hidden_dim) if args.no_rel_attn else GatDot_rel(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-        elif self.args.attn_type == 'rgcn':
-            gats = []
-            for _ in range(args.gnn_layers):
-                # gats += [GAT_dialoggcn(args.hidden_dim)]
-                gats += [GAT_dialoggcn_v1(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-
-        grus_c = []
-        for _ in range(args.gnn_layers):
-            grus_c += [nn.GRUCell(args.hidden_dim, args.hidden_dim)]
-        self.grus_c = nn.ModuleList(grus_c)
-
-        grus_p = []
-        for _ in range(args.gnn_layers):
-            grus_p += [nn.GRUCell(args.hidden_dim, args.hidden_dim)]
-        self.grus_p = nn.ModuleList(grus_p)
-
-        fcs = []
-        for _ in range(args.gnn_layers):
-            fcs += [nn.Linear(args.hidden_dim * 2, args.hidden_dim)]
-        self.fcs = nn.ModuleList(fcs)
-
-        self.fc1 = nn.Linear(args.emb_dim, args.hidden_dim)
-
-        self.nodal_att_type = args.nodal_att_type
-
-        in_dim = args.hidden_dim * (args.gnn_layers + 1) + args.emb_dim
-
-        # output mlp layers
-        layers = [nn.Linear(in_dim, args.hidden_dim), nn.ReLU()]
-        for _ in range(args.mlp_layers - 1):
-            layers += [nn.Linear(args.hidden_dim, args.hidden_dim), nn.ReLU()]
-        layers += [self.dropout]
-        layers += [nn.Linear(args.hidden_dim, num_class)]
-
-        self.out_mlp = nn.Sequential(*layers)
-
-        self.attentive_node_features = attentive_node_features(in_dim)
-
-    def forward(self, features, adj, s_mask, s_mask_onehot, lengths):
-        '''
-        :param features: (B, N, D)
-        :param adj: (B, N, N)
-        :param s_mask: (B, N, N)
-        :param s_mask_onehot: (B, N, N, 2)
-        :return:
-        '''
-        num_utter = features.size()[1]
-
-        H0 = F.relu(self.fc1(features))
-        # H0 = self.dropout(H0)
-        H = [H0]
-        for l in range(self.args.gnn_layers):
-            C = self.grus_c[l](H[l][:, 0, :]).unsqueeze(1)
-            M = torch.zeros_like(C).squeeze(1)
-            # P = M.unsqueeze(1) 
-            P = self.grus_p[l](M, H[l][:, 0, :]).unsqueeze(1)
-            # H1 = F.relu(self.fcs[l](torch.cat((C,P) , dim = 2)))
-            # H1 = F.relu(C+P)
-            H1 = C + P
-            for i in range(1, num_utter):
-                # print(i,num_utter)
-                if self.args.attn_type == 'rgcn':
-                    _, M = self.gather[l](H[l][:, i, :], H1, H1, adj[:, i, :i], s_mask[:, i, :i])
-                    # _, M = self.gather[l](H[l][:,i,:], H1, H1, adj[:,i,:i], s_mask_onehot[:,i,:i,:])
-                else:
-                    if not self.rel_attn:
-                        _, M = self.gather[l](H[l][:, i, :], H1, H1, adj[:, i, :i])
-                    else:
-                        _, M = self.gather[l](H[l][:, i, :], H1, H1, adj[:, i, :i], s_mask[:, i, :i])
-
-                C = self.grus_c[l](H[l][:, i, :], M).unsqueeze(1)
-                P = self.grus_p[l](M, H[l][:, i, :]).unsqueeze(1)
-                # P = M.unsqueeze(1)
-                # H_temp = F.relu(self.fcs[l](torch.cat((C,P) , dim = 2)))
-                # H_temp = F.relu(C+P)
-                H_temp = C + P
-                H1 = torch.cat((H1, H_temp), dim=1)
-                # print('H1', H1.size())
-                # print('----------------------------------------------------')
-            H.append(H1)
-        H.append(features)
-
-        H = torch.cat(H, dim=2)
-
-        H = self.attentive_node_features(H, lengths, self.nodal_att_type)
-
-        logits = self.out_mlp(H)
-
-        return logits
-
-
-class DAGERC_v2(nn.Module):
-
-    def __init__(self, args, num_class):
-        super().__init__()
-        self.args = args
-        # gcn layer
-
-        self.dropout = nn.Dropout(args.dropout)
-
-        self.gnn_layers = args.gnn_layers
-
-        if not args.no_rel_attn:
-            self.rel_attn = True
-        else:
-            self.rel_attn = False
-
-        if self.args.attn_type == 'linear':
-            gats = []
-            for _ in range(args.gnn_layers):
-                gats += [GatLinear(args.hidden_dim) if args.no_rel_attn else GatLinear_rel(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-        else:
-            gats = []
-            for _ in range(args.gnn_layers):
-                gats += [GatDot(args.hidden_dim) if args.no_rel_attn else GatDot_rel(args.hidden_dim)]
-            self.gather = nn.ModuleList(gats)
-
-        grus_c = []
-        for _ in range(args.gnn_layers):
-            grus_c += [nn.GRUCell(args.hidden_dim, args.hidden_dim)]
-        self.grus_c = nn.ModuleList(grus_c)
-
-        grus_p = []
-        for _ in range(args.gnn_layers):
-            grus_p += [nn.GRUCell(args.hidden_dim, args.hidden_dim)]
-        self.grus_p = nn.ModuleList(grus_p)
-
-        self.fc1 = nn.Linear(args.emb_dim, args.hidden_dim)
-
-        in_dim = args.hidden_dim * (args.gnn_layers * 2 + 1) + args.emb_dim
-        # output mlp layers
-        layers = [nn.Linear(in_dim, args.hidden_dim), nn.ReLU()]
-        for _ in range(args.mlp_layers - 1):
-            layers += [nn.Linear(args.hidden_dim, args.hidden_dim), nn.ReLU()]
-        layers += [nn.Linear(args.hidden_dim, num_class)]
-
-        self.out_mlp = nn.Sequential(*layers)
-
-    def forward(self, features, adj, s_mask):
-        '''
-        :param features: (B, N, D)
-        :param adj: (B, N, N)
-        :param s_mask: (B, N, N)
-        :return:
-        '''
-        num_utter = features.size()[1]
-        if self.rel_attn:
-            rel_ft = self.rel_emb(s_mask)  # (B, N, N, D)
-
-        H0 = F.relu(self.fc1(features))  # (B, N, D)
-        H = [H0]
-        C = [H0]
-        for l in range(self.args.gnn_layers):
-            CL = self.grus_c[l](C[l][:, 0, :]).unsqueeze(1)  # (B, 1, D)
-            M = torch.zeros_like(CL).squeeze(1)
-            # P = M.unsqueeze(1)
-            P = self.grus_p[l](M, C[l][:, 0, :]).unsqueeze(1)  # (B, 1, D)
-            for i in range(1, num_utter):
-                if not self.rel_attn:
-                    _, M = self.gather[l](C[l][:, i, :], P, P, adj[:, i, :i])
-                else:
-                    _, M = self.gather[l](C[l][:, i, :], P, P, adj[:, i, :i], rel_ft[:, i, :i, :])
-
-                C_ = self.grus_c[l](C[l][:, i, :], M).unsqueeze(1)  # (B, 1, D)
-                P_ = self.grus_p[l](M, H[l][:, i, :]).unsqueeze(1)  # (B, 1, D)
-                # P = M.unsqueeze(1)
-                CL = torch.cat((CL, C_), dim=1)  # (B, i, D)
-                P = torch.cat((P, P_), dim=1)  # (B, i, D)
-                # print('H1', H1.size())
-                # print('----------------------------------------------------')
-            C.append(CL)
-            H.append(CL)
-            H.append(P)
-        H.append(features)
-        H = torch.cat(H, dim=2)  # (B, N, l*D)
-        logits = self.out_mlp(H)
-        return logits
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -353,7 +28,8 @@ class BertConfig(object):
                  attention_probs_dropout_prob=0.1,
                  max_position_embeddings=512,
                  type_vocab_size=2,
-                 initializer_range=0.02):
+                 initializer_range=0.02,
+                 dataset_name='IEMOCAP'):
         """Constructs BertConfig.
         Args:
             vocab_size_or_config_json_file: Vocabulary size of `inputs_ids` in `BertModel`.
@@ -395,6 +71,7 @@ class BertConfig(object):
             self.max_position_embeddings = max_position_embeddings
             self.type_vocab_size = type_vocab_size
             self.initializer_range = initializer_range
+            self.dataset_name = dataset_name
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
                              "or the path to a pretrained model config file (str)")
@@ -597,6 +274,16 @@ class DialogueEIN(nn.Module):
     def __init__(self, config, emotion_num, window_size, device):
         super(DialogueEIN, self).__init__()
         self.device = device
+        if config.dataset_name in ['IEMOCAP']: # roberta-base
+            config.hidden_size = 384
+            self.roberta_dim = 768
+            self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-base")
+        elif config.dataset_name in ['MELD', 'jddc']:
+            config.hidden_size = 512
+            # self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
+            self.roberta = AutoModelForMaskedLM.from_pretrained("hfl/chinese-roberta-wwm-ext-large") # train on jddc, chinese-roberta-large
+            self.roberta_dim = 768   
+            config.num_hidden_layers = 24    
         self.semantic_encoder = SemanticEncoder(config.hidden_size)
         self.emo_num = emotion_num
         self.window_size = window_size
@@ -608,17 +295,14 @@ class DialogueEIN(nn.Module):
         self.intra_mha = EmotionAttention(config)
         self.transform1 = nn.Linear(4 * config.hidden_size, config.hidden_size)  # Emotion interaction layer
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        self.transform2 = nn.Linear(config.hidden_size, config.hidden_size)  # classify layer
-        self.mlp = MLP(3, config.hidden_size, config.hidden_size, emotion_num)
-        self.roberta_dim = 768
-        if config.hidden_size == 384:
-            self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-base")
-        else:
-            self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
-            self.roberta_dim = 1024           
+        self.transform2 = nn.Linear(config.hidden_size, config.hidden_size, bias=False)  # classify layer
+    
         self.linear_trans = nn.Linear(self.roberta_dim, config.hidden_size)
+        self.mlp = MLP(2, self.roberta_dim, 512, emotion_num)
 
-    def forward(self, utts, att_mask, lengths, speakers):
+        self.config = config
+
+    def forward(self, features, lengths, speakers):
         """
         @params:
         utts: B x S x W, S is the max dialogue length, W is the max sentence length, which is 512, as roberta-base limits
@@ -626,17 +310,17 @@ class DialogueEIN(nn.Module):
         lengths: B dialogue length
         att_mask: B x S x W, transformers attention_mask tensor
         """
-        B = utts.shape[0]
-        S = utts.shape[1]
-        utts = utts.view(-1, utts.shape[-1]) # (B x S, W)
-        att_mask = att_mask.view(-1, att_mask.shape[-1]) # (B x S, W)
-        output = self.roberta(input_ids=utts, attention_mask=att_mask, output_hidden_states=True) # output object
-        features = output["hidden_states"][12][:,0] # (B x S, H) get the cls feature
-        features = features.view(B,S,features.shape[-1]) # B x T x H
+        # B = utts.shape[0]
+        # S = utts.shape[1]
+        # utts = utts.view(-1, utts.shape[-1]) # (B x S, W)
+        # att_mask = att_mask.view(-1, att_mask.shape[-1]) # (B x S, W)
+        # output = self.roberta(input_ids=utts, attention_mask=att_mask, output_hidden_states=True) # output object
+        # features = output["hidden_states"][self.config.num_hidden_layers][:,0] # (B x S, H) get the cls feature
+        # features = features.view(B,S,features.shape[-1]) # B x T x H
         features = self.linear_trans(features) # B x T x U, U is feature size of an utterance
         h_s = self.semantic_encoder(features, lengths)  # B x T x U
         att_mask = torch.ones(1, self.emo_num)  # 1 x emo_num (broadcast to B x 1 x 1 x emo_num )
-        extended_att_mask = att_mask.unsqueeze(1).unsqueeze(2).to(self.device)  # B x 1 x 1 x T
+        extended_att_mask = att_mask.unsqueeze(1).unsqueeze(2).to(self.device)  # 1 x 1 x 1 x T
         # .to(dtype=next(self.parameters()).dtype)  # fp16 compatibility
         extended_att_mask = (1.0 - extended_att_mask) * -10000.0
         h_e = self.tendency_mha(h_s, self.emotion_ebd.weight.unsqueeze(0), self.emotion_ebd.weight.unsqueeze(0),
@@ -655,7 +339,7 @@ class DialogueEIN(nn.Module):
         logits = torch.matmul(h_a, self.emotion_ebd.weight.transpose(0, 1).unsqueeze(0))  # B x T x C
         return logits
         # features = features.view(-1, features.shape[-1]) # (B x T, H)
-        # return self.mlp(features) # (B x T, C)
+        # return self.mlp(features) # B x T x C
 
 
 def get_ext_att_mask(lengths, window_size=5, type: str = "global", speakers=None, device="cpu"):

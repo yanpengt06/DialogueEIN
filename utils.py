@@ -28,19 +28,13 @@ def remove_layer_idx(s):
     s = re.sub(r'\d+.','',s)
     return s
 
-def get_param_group(model):
+def get_param_group(model, lr_rbt, lr_o):
     params = list(model.named_parameters())
 
     small = ['roberta']
 
-    if model.roberta_dim == 768: # train on IEMOCAP
-        param_group = [
-            {'params':[p for n,p in params if any(s in n for s in small)], 'lr':2e-6}, # roberta params
-            {'params':[p for n,p in params if not any(s in n for s in small)],'lr':1e-5}, # not small lr, not roberta
-        ]
-    else: # 1024 train on MELD
-        param_group = [
-            {'params':[p for n,p in params if any(s in n for s in small)], 'lr':1e-6}, # roberta params
-            {'params':[p for n,p in params if not any(s in n for s in small)],'lr':1e-5}, # not small lr, not roberta
-        ]
+    param_group = [
+        {'params':[p for n,p in params if any(s in n for s in small)], 'lr':lr_rbt}, # roberta params
+        {'params':[p for n,p in params if not any(s in n for s in small)],'lr':lr_o}, # not small lr, not roberta
+    ]
     return param_group

@@ -4,17 +4,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
-from dataloader import IEMOCAPDataset
 from sklearn.metrics import f1_score, confusion_matrix, accuracy_score, classification_report, \
     precision_recall_fscore_support
 from utils import person_embed
 from tqdm import tqdm
 import json
 
-
-# 学习率衰减器，默认拐点为EPOCH ，即没有拐点
-def LR_tracker(iter:int, lr_start, lr_end, total):
-    return lr_start + (lr_end - lr_start)*iter/total
 
 
 def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, optimizer=None, train=False, scheduler=None):
@@ -26,7 +21,6 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
     if train:
         model.train()
         # dataloader = tqdm(dataloader)
-        # optimizer.lr = LR_tracker(epoch, args.lr_start, args.lr_end, args.epochs)	# 执行学习率衰减，加拐点
         # print(f"current roberta learning rate is :{optimizer.param_groups[0]['lr']}")        
         # print(f"current other learning rate is :{optimizer.param_groups[1]['lr']}")                
     else:
@@ -37,22 +31,23 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
         if train:
             optimizer.zero_grad()
         # text_ids, text_feature, speaker_ids, labels, umask = [d.cuda() for d in data] if cuda else data
-        label, speakers, lengths, utterances, utts, att_mask = data
+        # label, speakers, lengths, utterances, utts, att_mask = data
+        features, label, speakers, lengths, utterances = data
         # speaker_vec = person_embed(speaker_ids, person_vec)
         if cuda:
-            # features = features.cuda()  # B x T x H
+            features = features.cuda()  # B x T x H
             # features = features.view(-1, features.shape[-1]) # (B x T, H)
             label = label.cuda()    # B x T
             # label = label.view(-1) # (B x T, )
             lengths = lengths.cuda()    # B
             speakers = speakers.cuda()  # B x T
-            utts = utts.cuda()
-            att_mask = att_mask.cuda()
+            # utts = utts.cuda()
+            # att_mask = att_mask.cuda()
 
 
         # print(speakers)
-        # log_prob = model(features, lengths, speakers) # (B, T, C)
-        log_prob = model(utts, att_mask, lengths, speakers) # (B, T, C)
+        log_prob = model(features, lengths, speakers) # (B, T, C)
+        # log_prob = model(utts, att_mask, lengths, speakers) # (B, T, C)
         # print(label)
         loss = loss_function(log_prob.permute(0,2,1), label) # B x C x T --- B x T
         # loss = loss_function(log_prob, label)
@@ -73,11 +68,14 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
             if args.tensorboard:
                 for param in model.named_parameters():
                     writer.add_histogram(param[0], param[1].grad, epoch)
-            optimizer.step()
+            # print(f"current learning rate is :{optimizer.param_groups[0]['lr']} and {optimizer.param_groups[1]['lr']}")                          
+            optimizer.step()      
+            scheduler.step()
+
 
     # if train:
-    #     scheduler.step()
-    #     print(f"current learning rate is :{optimizer.param_groups[0]['lr']}")        
+    #     # scheduler.step()
+    #     print(f"current learning rate is :{optimizer.param_groups[0]['lr']} and {optimizer.param_groups[1]['lr']}")        
 
     if preds != []:
         new_preds = []
@@ -94,15 +92,17 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
     else:
         return float('nan'), float('nan'), [], [], float('nan'), [], [], [], [], []
 
+    if not train:
+        print(classification_report(new_labels, new_preds))        
     # print(preds.tolist())
     # print(labels.tolist())
     avg_loss = round(np.sum(losses) / len(losses), 4)
     avg_accuracy = round(accuracy_score(new_labels, new_preds) * 100, 2)
-    if args.dataset_name in ['IEMOCAP', 'MELD', 'EmoryNLP']:
+    if args.dataset_name in ['IEMOCAP', 'MELD', 'EmoryNLP', 'jddc']:
         avg_fscore = round(f1_score(new_labels, new_preds, average='weighted') * 100, 2)
         return avg_loss, avg_accuracy, labels, preds, avg_fscore
-    else: # DailyDialog or jddc
-        avg_micro_fscore = round(f1_score(new_labels, new_preds, average='micro', labels=list(range(1, 7))) * 100, 2)
+    else: # DailyDialog
+        avg_micro_fscore = round(f1_score(new_labels, new_preds, average='micro', labels=list(range(0, 3))) * 100, 2)
         avg_macro_fscore = round(f1_score(new_labels, new_preds, average='macro') * 100, 2)
         return avg_loss, avg_accuracy, labels, preds, avg_micro_fscore, avg_macro_fscore
 

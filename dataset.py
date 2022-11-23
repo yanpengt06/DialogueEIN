@@ -8,7 +8,6 @@ import random
 from pandas import DataFrame
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 
-
 class IEMOCAPDataset(Dataset):
 
     def __init__(self, dataset_name = 'IEMOCAP', split = 'train', speaker_vocab=None, label_vocab=None, args = None, tokenizer = None):
@@ -67,79 +66,6 @@ class IEMOCAPDataset(Dataset):
     def __len__(self):
         return self.len
 
-    def get_adj(self, speakers, max_dialog_len):
-        '''
-        get adj matrix
-        :param speakers:  (B, N)
-        :param max_dialog_len:
-        :return:
-            adj: (B, N, N) adj[:,i,:] means the direct predecessors of node i
-        '''
-        adj = []
-        for speaker in speakers:
-            a = torch.zeros(max_dialog_len, max_dialog_len)
-            for i,s in enumerate(speaker):
-                get_local_pred = False
-                get_global_pred = False
-                for j in range(i - 1, -1, -1):
-                    if speaker[j] == s and not get_local_pred:
-                        get_local_pred = True
-                        a[i,j] = 1
-                    elif speaker[j] != s and not get_global_pred:
-                        get_global_pred = True
-                        a[i,j] = 1
-                    if get_global_pred and get_local_pred:
-                        break
-            adj.append(a)
-        return torch.stack(adj)
-
-    def get_adj_v1(self, speakers, max_dialog_len):
-        '''
-        get adj matrix
-        :param speakers:  (B, N)
-        :param max_dialog_len:
-        :return:
-            adj: (B, N, N) adj[:,i,:] means the direct predecessors of node i
-        '''
-        adj = []
-        for speaker in speakers:
-            a = torch.zeros(max_dialog_len, max_dialog_len)
-            for i,s in enumerate(speaker):
-                cnt = 0
-                for j in range(i - 1, -1, -1):             
-                    a[i,j] = 1
-                    if speaker[j] == s:
-                        cnt += 1
-                        if cnt==self.args.windowp:
-                            break
-            adj.append(a)
-        return torch.stack(adj)
-
-    def get_s_mask(self, speakers, max_dialog_len):
-        '''
-        :param speakers:
-        :param max_dialog_len:
-        :return:
-         s_mask: (B, N, N) s_mask[:,i,:] means the speaker informations for predecessors of node i, where 1 denotes the same speaker, 0 denotes the different speaker
-         s_mask_onehot (B, N, N, 2) onehot emcoding of s_mask
-        '''
-        s_mask = []
-        s_mask_onehot = []
-        for speaker in speakers:
-            s = torch.zeros(max_dialog_len, max_dialog_len, dtype = torch.long)
-            s_onehot = torch.zeros(max_dialog_len, max_dialog_len, 2)
-            for i in range(len(speaker)):
-                for j in range(len(speaker)):
-                    if speaker[i] == speaker[j]:
-                        s[i,j] = 1
-                        s_onehot[i,j,1] = 1
-                    else:
-                        s_onehot[i,j,0] = 1
-
-            s_mask.append(s)
-            s_mask_onehot.append(s_onehot)
-        return torch.stack(s_mask), torch.stack(s_mask_onehot)
-
     def collate_fn(self, data):
         '''
         :param data:
@@ -163,7 +89,6 @@ class IEMOCAPDataset(Dataset):
 
         return feaures, labels, speakers, lengths, utterances
 
-
 class IEMOCAPDataset2(Dataset):
 
     def __init__(self, dataset_name = 'IEMOCAP', split = 'train', speaker_vocab=None, label_vocab=None, args = None, tokenizer = None):
@@ -172,7 +97,9 @@ class IEMOCAPDataset2(Dataset):
         self.args = args
         self.data = self.read(dataset_name, split, tokenizer)
         print(f"dataset size is:{len(self.data)}")
-        self.tokenizer = AutoTokenizer.from_pretrained("roberta-base")
+        self.tokenizer = AutoTokenizer.from_pretrained("hfl/chinese-roberta-wwm-ext-large")
+        # self.tokenizer = AutoTokenizer.from_pretrained("roberta-base")
+        
         self.len = len(self.data)
 
     def read(self, dataset_name, split, tokenizer):

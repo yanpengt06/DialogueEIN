@@ -5,19 +5,16 @@ import numpy as np, argparse, time, pickle, random
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from dataloader import IEMOCAPDataset
 from model import *
 from sklearn.metrics import f1_score, confusion_matrix, accuracy_score, classification_report, \
     precision_recall_fscore_support
 from trainer import train_or_eval_model, save_badcase
-from dataset import IEMOCAPDataset
 from dataloader import get_IEMOCAP_loaders
-from transformers import AdamW
+from transformers import AdamW, get_linear_schedule_with_warmup
 import copy
 from utils import remove_layer_idx, get_param_group
 
 # We use seed = 100 for reproduction of the results reported in the paper.
-seed = 100
 
 import logging
 
@@ -41,7 +38,7 @@ def get_logger(filename, verbosity=1, name=None):
     return logger
 
 
-def seed_everything(seed=seed):
+def seed_everything(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -59,28 +56,31 @@ if __name__ == '__main__':
 
     parser.add_argument('--no_cuda', action='store_true', default=False, help='does not use GPU')
 
-    parser.add_argument('--dataset_name', default='IEMOCAP', type=str,
-                        help='dataset name, IEMOCAP or MELD or DailyDialog'
-                             'or jddc')
+    parser.add_argument('--dataset_name', default='jddc', type=str,
+                        help='dataset name, IEMOCAP or MELD or DailyDialog or jddc')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
 
-    parser.add_argument('--lr', type=float, default=1e-5, metavar='LR', help='learning rate')
+    parser.add_argument('--lr_rbt', type=float, default=2e-5, metavar='LR', help='learning rate for roberta')
+
+    parser.add_argument('--lr_o', type=float, default=1e-4, metavar='LR', help='learning rate for other module')    
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
     parser.add_argument('--batch_size', type=int, default=8, metavar='BS', help='batch size')
 
-    parser.add_argument('--epochs', type=int, default=40, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
 
-    parser.add_argument('--window_size', type=int, default=15, metavar='WS', help='window_size of local attention')
+    parser.add_argument('--window_size', type=int, default=7, metavar='WS', help='window_size of local attention')
 
     parser.add_argument('--tensorboard', action='store_true', default=False, help='Enables tensorboard log')
 
+    parser.add_argument('--seed', type=int, default=66, metavar='SD', help='manual_seed')
 
     args = parser.parse_args()
     print(args)
 
-    seed_everything()
+    seed = args.seed
+    seed_everything(seed)
 
     args.cuda = torch.cuda.is_available() and not args.no_cuda
 
@@ -95,15 +95,21 @@ if __name__ == '__main__':
         from tensorboardX import SummaryWriter
 
         writer = SummaryWriter()
-    now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
-    logger = get_logger(path + args.dataset_name + f'/{now}.log')
-    logger.info('start training on GPU {}!'.format(os.environ["CUDA_VISIBLE_DEVICES"]))
-    logger.info(args)
 
     cuda = args.cuda
     device = "cuda" if cuda else "cpu"
     n_epochs = args.epochs
     batch_size = args.batch_size
+    lr_rbt = args.lr_rbt
+    lr_o = args.lr_o    
+
+
+    now = time.strftime('%Y-%m-%d-%H-%M-%S', time.localtime())
+    logger = get_logger(path + args.dataset_name + f'/{now}_b{batch_size}_e{n_epochs}_lr1_{lr_rbt}_lr2_{lr_o}_seed{seed}.log')
+    logger.info('start training on GPU {}!'.format(os.environ["CUDA_VISIBLE_DEVICES"]))
+    logger.info(args)
+
+
     train_loader, valid_loader, test_loader, speaker_vocab, label_vocab, person_vec = get_IEMOCAP_loaders(
         dataset_name=args.dataset_name, batch_size=batch_size, num_workers=4, args=args)
     # for data in train_loader:         # load data successfully
@@ -112,13 +118,12 @@ if __name__ == '__main__':
     print(f"This dataset contains {n_classes} classes.")
     print('building model..')
 
-    config.hidden_size = 384 if args.dataset_name == 'IEMOCAP' else 512
+    config.dataset_name = args.dataset_name
     model = DialogueEIN(config, n_classes, window_size=args.window_size, device=device)
 
     # for n, p in model.named_parameters():
     #     print(n)
-
-    param_group = get_param_group(model)
+    param_group = get_param_group(model, lr_rbt, lr_o)
 
     # # verify group correctly
     # small = ['roberta']
@@ -139,8 +144,9 @@ if __name__ == '__main__':
 
 
     loss_function = nn.CrossEntropyLoss(ignore_index=-1)
-    optimizer = AdamW(param_group, lr=args.lr)
-    # scheduler = optim.lr_scheduler.LinearLR(optimizer, start_factor=1, end_factor=1e-2, total_iters=n_epochs)
+    optimizer = AdamW(param_group, lr=args.lr_o)
+    total_steps = n_epochs * len(train_loader)     
+    scheduler = get_linear_schedule_with_warmup(optimizer=optimizer, num_warmup_steps=int(total_steps * 0.06), num_training_steps=total_steps)
 
     best_fscore, best_acc, best_loss, best_label, best_pred, best_mask = None, None, None, None, None, None
     all_fscore, all_acc, all_loss = [], [], []
@@ -151,13 +157,13 @@ if __name__ == '__main__':
     for e in range(n_epochs):
         start_time = time.time()
 
-        if args.dataset_name == 'DailyDialog':
+        if args.dataset_name in ['DailyDialog']:
             train_loss, train_acc, _, _, train_micro_fscore, train_macro_fscore = train_or_eval_model(model,
                                                                                                       loss_function,
                                                                                                       train_loader, e,
                                                                                                       cuda,
                                                                                                       args, optimizer,
-                                                                                                      True, scheduler)
+                                                                                                      True)
             valid_loss, valid_acc, _, _, valid_micro_fscore, valid_macro_fscore = train_or_eval_model(model,
                                                                                                       loss_function,
                                                                                                       valid_loader, e,
@@ -176,7 +182,7 @@ if __name__ == '__main__':
         else:
             train_loss, train_acc, _, _, train_fscore = train_or_eval_model(model, loss_function,
                                                                             train_loader, e, cuda,
-                                                                            args, optimizer, True)
+                                                                            args, optimizer, True, scheduler)
             valid_loss, valid_acc, _, _, valid_fscore = train_or_eval_model(model, loss_function,
                                                                             valid_loader, e, cuda, args)
             test_loss, test_acc, test_label, test_pred, test_fscore = train_or_eval_model(model, loss_function,
@@ -190,7 +196,7 @@ if __name__ == '__main__':
                        test_acc,
                        test_fscore, round(time.time() - start_time, 2)))
 
-        # torch.save(model.state_dict(), path + args.dataset_name + '/model_' + str(e) + '_' + str(test_acc)+ '.pkl')
+            # torch.save(model.roberta, f"{path}{args.dataset_name}/ckpt/finetuneRBT-{e}-{test_acc}.pkl")
 
         e += 1
 
