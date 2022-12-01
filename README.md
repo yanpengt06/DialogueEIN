@@ -46,6 +46,23 @@ Expr1 and Expr3 are feature fixed(using features extracted from chinese-roberta-
 
 feature-fixed method boost the model performance showing my reproduction is relatively believable.
 
+## Some Ablation Experiments
+
+|          Model\Metric           |  Acc  | f-score-weighted |
+| :-----------------------------: | :---: | :--------------: |
+|           w/o  local            | 91.41 |       92.3       |
+|            w/o intra            | 96.44 |      96.48       |
+|           w/o  inter            | 95.8  |      95.65       |
+|           w/o global            | 94.24 |      94.08       |
+|        w/o  emotion-ebd         | 88.21 |      89.41       |
+|     w/o emotion-interaction     | 89.03 |      89.67       |
+| DialogueEIN-feature-fixed-share | 93.42 |      93.96       |
+|     separate-emo-embedding      | 95.34 |      95.56       |
+|          w/o residual           | 93.05 |       93.5       |
+|        encoder_layer = 2        | 94.06 |      94.43       |
+
+Some model structure modification and ablation, which are implemented on **JDDC** Chinese Dataset.
+
 ## Some annoying bugs
 
 on the reproduction on MELD, I wrongly choose the 12th layer cls repr as the utterance feature using roberta-large, so the result-v4 on MELD is little worse than original paper.
