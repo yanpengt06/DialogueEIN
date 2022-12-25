@@ -14,13 +14,14 @@ Project structure refers to @shenwzh3/DAG-ERC. Features and Dataset can be found
 
 |                              | IEMOCAP   | MELD      |
 | ---------------------------- | --------- | --------- |
-| **Ref**-weighted-avg-f-score | **68.93** | 65.37     |
+| **Ref**-weighted-avg-f-score | **68.93** | **65.37** |
 | result-v1                    | 64.22     | 62.65     |
 | result-SSC                   | 65.67     | 63.59     |
 | result-v2                    | 62.83     | 63.3      |
 | result-v3                    | 63.38     | 63.03     |
 | result-v4                    | 63.84     | 63.1      |
-| result-v5                    | 64.6      | **64.52** |
+| result-v5                    | 64.6      | 64.52     |
+| result-v6                    | 63.56     | **65.11** |
 
 ## explanation
 
@@ -31,6 +32,7 @@ Project structure refers to @shenwzh3/DAG-ERC. Features and Dataset can be found
 - V3: add linear transform compared to v2
 - V4: add separate learning rate compared to v3
 - V5: add linear learning rate decay compared to v4
+- V6: fix a fatal bug: extended_mask should be -10000 or 0
 
 ## Some Validation Experiments
 

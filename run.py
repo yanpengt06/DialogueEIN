@@ -56,13 +56,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--no_cuda', action='store_true', default=False, help='does not use GPU')
 
-    parser.add_argument('--dataset_name', default='jddc', type=str,
+    parser.add_argument('--dataset_name', default='MELD', type=str,
                         help='dataset name, IEMOCAP or MELD or DailyDialog or jddc')
     parser.add_argument('--max_grad_norm', type=float, default=5.0, help='Gradient clipping.')
 
-    parser.add_argument('--lr_rbt', type=float, default=2e-5, metavar='LR', help='learning rate for roberta')
+    parser.add_argument('--lr_rbt', type=float, default=5e-6, metavar='LR', help='learning rate for roberta')
 
-    parser.add_argument('--lr_o', type=float, default=1e-4, metavar='LR', help='learning rate for other module')    
+    parser.add_argument('--lr_o', type=float, default=5e-5, metavar='LR', help='learning rate for other module')
 
     parser.add_argument('--dropout', type=float, default=0.1, metavar='dropout', help='dropout rate')
 
@@ -70,11 +70,11 @@ if __name__ == '__main__':
 
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
 
-    parser.add_argument('--window_size', type=int, default=7, metavar='WS', help='window_size of local attention')
+    parser.add_argument('--window_size', type=int, default=5, metavar='WS', help='window_size of local attention')
 
     parser.add_argument('--tensorboard', action='store_true', default=False, help='Enables tensorboard log')
 
-    parser.add_argument('--seed', type=int, default=66, metavar='SD', help='manual_seed')
+    parser.add_argument('--seed', type=int, default=100, metavar='SD', help='manual_seed')
 
     args = parser.parse_args()
     print(args)
@@ -196,7 +196,7 @@ if __name__ == '__main__':
                        test_acc,
                        test_fscore, round(time.time() - start_time, 2)))
 
-            # torch.save(model.roberta, f"{path}{args.dataset_name}/ckpt/finetuneRBT-{e}-{test_acc}.pkl")
+            # torch.save(model, f"{path}{args.dataset_name}/ckpt/EIN-{e}-{test_fscore}.pkl")
 
         e += 1
 

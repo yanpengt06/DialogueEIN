@@ -274,16 +274,16 @@ class DialogueEIN(nn.Module):
     def __init__(self, config, emotion_num, window_size, device):
         super(DialogueEIN, self).__init__()
         self.device = device
-        if config.dataset_name in ['IEMOCAP']: # roberta-base
+        if config.dataset_name in ['IEMOCAP']:  # roberta-base
             config.hidden_size = 384
             self.roberta_dim = 768
             self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-base")
         elif config.dataset_name in ['MELD', 'jddc']:
             config.hidden_size = 512
-            # self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
-            self.roberta = AutoModelForMaskedLM.from_pretrained("hfl/chinese-roberta-wwm-ext-large") # train on jddc, chinese-roberta-large
-            self.roberta_dim = 768   
-            config.num_hidden_layers = 24    
+            self.roberta = AutoModelForMaskedLM.from_pretrained("roberta-large")
+            # self.roberta = AutoModelForMaskedLM.from_pretrained("hfl/chinese-roberta-wwm-ext-large") # train on jddc, chinese-roberta-large
+            self.roberta_dim = 1024
+            config.num_hidden_layers = 24
         self.semantic_encoder = SemanticEncoder(config.hidden_size)
         self.emo_num = emotion_num
         self.window_size = window_size
@@ -296,13 +296,13 @@ class DialogueEIN(nn.Module):
         self.transform1 = nn.Linear(4 * config.hidden_size, config.hidden_size)  # Emotion interaction layer
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.transform2 = nn.Linear(config.hidden_size, config.hidden_size, bias=False)  # classify layer
-    
+
         self.linear_trans = nn.Linear(self.roberta_dim, config.hidden_size)
         self.mlp = MLP(2, self.roberta_dim, 512, emotion_num)
 
         self.config = config
 
-    def forward(self, features, lengths, speakers):
+    def forward(self, utts, att_mask, lengths, speakers):
         """
         @params:
         utts: B x S x W, S is the max dialogue length, W is the max sentence length, which is 512, as roberta-base limits
@@ -310,14 +310,14 @@ class DialogueEIN(nn.Module):
         lengths: B dialogue length
         att_mask: B x S x W, transformers attention_mask tensor
         """
-        # B = utts.shape[0]
-        # S = utts.shape[1]
-        # utts = utts.view(-1, utts.shape[-1]) # (B x S, W)
-        # att_mask = att_mask.view(-1, att_mask.shape[-1]) # (B x S, W)
-        # output = self.roberta(input_ids=utts, attention_mask=att_mask, output_hidden_states=True) # output object
-        # features = output["hidden_states"][self.config.num_hidden_layers][:,0] # (B x S, H) get the cls feature
-        # features = features.view(B,S,features.shape[-1]) # B x T x H
-        features = self.linear_trans(features) # B x T x U, U is feature size of an utterance
+        B = utts.shape[0]
+        S = utts.shape[1]
+        utts = utts.view(-1, utts.shape[-1]) # (B x S, W)
+        att_mask = att_mask.view(-1, att_mask.shape[-1]) # (B x S, W)
+        output = self.roberta(input_ids=utts, attention_mask=att_mask, output_hidden_states=True) # output object
+        features = output["hidden_states"][self.config.num_hidden_layers][:,0] # (B x S, H) get the cls feature
+        features = features.view(B,S,features.shape[-1]) # B x T x H
+        features = self.linear_trans(features)  # B x T x U, U is feature size of an utterance
         h_s = self.semantic_encoder(features, lengths)  # B x T x U
         att_mask = torch.ones(1, self.emo_num)  # 1 x emo_num (broadcast to B x 1 x 1 x emo_num )
         extended_att_mask = att_mask.unsqueeze(1).unsqueeze(2).to(self.device)  # 1 x 1 x 1 x T
@@ -354,7 +354,7 @@ def get_ext_att_mask(lengths, window_size=5, type: str = "global", speakers=None
 
         mask = torch.arange((maxlen), dtype=torch.float32)[None, :].to(device) < lengths[:, None]
         mask = mask + 0
-        return mask.unsqueeze(1).unsqueeze(2).to(device)
+        mask = mask.unsqueeze(1).unsqueeze(2).to(device)
     elif type == "local":
         B = lengths.shape[0]
         matrix_list = []
@@ -370,7 +370,7 @@ def get_ext_att_mask(lengths, window_size=5, type: str = "global", speakers=None
                 att_matrix[j, start:end + 1] = 1
             matrix_list.append(att_matrix)
         mask = torch.stack(matrix_list)
-        return mask.unsqueeze(1).to(device)
+        mask = mask.unsqueeze(1).to(device)
     elif type == "intra":
         B = lengths.shape[0]
         matrix_list = []
@@ -383,7 +383,7 @@ def get_ext_att_mask(lengths, window_size=5, type: str = "global", speakers=None
                 mask = mask + 0
                 att_matrix[j, :] = mask
             matrix_list.append(att_matrix)
-        return torch.stack(matrix_list).unsqueeze(1).to(device)
+        mask = torch.stack(matrix_list).unsqueeze(1).to(device)
     elif type == "inter":
         B = lengths.shape[0]
         matrix_list = []
@@ -397,7 +397,8 @@ def get_ext_att_mask(lengths, window_size=5, type: str = "global", speakers=None
                 att_matrix[j, :] = mask
             att_matrix[:, lengths[i]:] = 0
             matrix_list.append(att_matrix)
-        return torch.stack(matrix_list).unsqueeze(1).to(device)
+        mask = torch.stack(matrix_list).unsqueeze(1).to(device)
+    return (1.0 - mask) * -10000.
 
 
 class SemanticEncoder(nn.Module):
@@ -460,10 +461,10 @@ class MLP(nn.Module):
         @returns:
         logits B x C
         """
-        inputs = self.input_layer(inputs) # B x H
+        inputs = self.input_layer(inputs)  # B x H
         for hidden_layer in self.hidden_layers:
-            inputs = hidden_layer(inputs) # B x H
-        outputs = self.output_layer(inputs) # B x C, logits
+            inputs = hidden_layer(inputs)  # B x H
+        outputs = self.output_layer(inputs)  # B x C, logits
         return outputs
 
 

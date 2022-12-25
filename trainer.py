@@ -31,22 +31,22 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
         if train:
             optimizer.zero_grad()
         # text_ids, text_feature, speaker_ids, labels, umask = [d.cuda() for d in data] if cuda else data
-        # label, speakers, lengths, utterances, utts, att_mask = data
-        features, label, speakers, lengths, utterances = data
+        label, speakers, lengths, utterances, utts, att_mask = data
+        # features, label, speakers, lengths, utterances = data
         # speaker_vec = person_embed(speaker_ids, person_vec)
         if cuda:
-            features = features.cuda()  # B x T x H
+            # features = features.cuda()  # B x T x H
             # features = features.view(-1, features.shape[-1]) # (B x T, H)
             label = label.cuda()    # B x T
             # label = label.view(-1) # (B x T, )
             lengths = lengths.cuda()    # B
             speakers = speakers.cuda()  # B x T
-            # utts = utts.cuda()
-            # att_mask = att_mask.cuda()
+            utts = utts.cuda()
+            att_mask = att_mask.cuda()
 
 
         # print(speakers)
-        log_prob = model(features, lengths, speakers) # (B, T, C)
+        log_prob = model(utts, att_mask, lengths, speakers) # (B, T, C)
         # log_prob = model(utts, att_mask, lengths, speakers) # (B, T, C)
         # print(label)
         loss = loss_function(log_prob.permute(0,2,1), label) # B x C x T --- B x T
@@ -93,7 +93,8 @@ def train_or_eval_model(model, loss_function, dataloader,epoch, cuda, args, opti
         return float('nan'), float('nan'), [], [], float('nan'), [], [], [], [], []
 
     if not train:
-        print(classification_report(new_labels, new_preds))        
+        # print(classification_report(new_labels, new_preds))
+        pass
     # print(preds.tolist())
     # print(labels.tolist())
     avg_loss = round(np.sum(losses) / len(losses), 4)
